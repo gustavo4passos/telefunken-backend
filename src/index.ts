@@ -3,7 +3,7 @@ import { ExtWebSocket } from './connection/socket'
 import { storage } from './game/storage'
 import { onMessage } from './messageHandlers'
 const wss = new WebSocket.Server({
-  port: process.env.port ? Number(process.env.port) : 7071
+  port: process.env.PORT ? Number(process.env.PORT) : 7071
 })
 
 wss.on('connection', (ws: ExtWebSocket) => {
