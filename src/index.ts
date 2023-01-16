@@ -2,7 +2,7 @@ import WebSocket from 'ws'
 import { ExtWebSocket } from './connection/socket'
 import { storage } from './game/storage'
 import { onMessage } from './messageHandlers'
-const wss = new WebSocket.Server({ port: 7071 })
+const wss = new WebSocket.Server({ port: 443 })
 
 wss.on('connection', (ws: ExtWebSocket) => {
   ws.id = storage.AddConnection(ws)
