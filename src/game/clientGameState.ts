@@ -1,3 +1,4 @@
+import { DealConstraint } from './game'
 import { GameState, PlayerID } from './gameState'
 
 type GameID = number
@@ -9,13 +10,16 @@ export interface GameData {
   playerId: PlayerID
   state: GameState
   players: Record<PlayerID, Player>
-  round: number
+  deal: number
   playerTurn: PlayerID
   melds: Record<PlayerID, Array<Meld>>
   playerCards: Array<Card>
   otherPlayerCards: Record<PlayerID, number>
   discardPile: Array<Card>
-  playerOrder: Array<PlayerID> //TODO: This does not need to be sent everytime, just once. Maybe GameStarted or GameJoined
+  dealConstraintCompliance: Array<boolean>
+  //TODO: These does not need to be sent everytime, just once. Maybe GameStarted or GameJoined
+  dealConstraints: Array<DealConstraint>
+  playerOrder: Array<PlayerID>
 }
 
 export interface Player {

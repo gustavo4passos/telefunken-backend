@@ -15,7 +15,8 @@ export enum GameMessageType {
   GameJoined,
   GameStarted,
   PlayerJoined,
-  TurnChanged
+  TurnChanged,
+  DealChanged
 }
 
 export enum MessageStatusType {
@@ -46,6 +47,7 @@ export interface MGameStarted extends GameMessage {
 
 export interface MJoinGame extends GameMessage {
   gameId: GameID
+  playerId: PlayerID | null
 }
 
 export interface MGameCreated extends GameMessage {
@@ -69,5 +71,9 @@ export interface MPlay extends GameMessage {
 }
 
 export interface MTurnChanged extends GameMessage {
+  gameData: GameData
+}
+
+export interface MDealChanged extends GameMessage {
   gameData: GameData
 }

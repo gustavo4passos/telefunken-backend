@@ -1,6 +1,6 @@
 import { ExtWebSocket } from './connection/socket'
-import { GameID, GameState, PlayerID } from './game/gameState'
-import { Storage, storage } from './game/storage'
+import { GameState, PlayerID } from './game/gameState'
+import { storage } from './game/storage'
 import {
   GameMessage,
   GameMessageType,
@@ -12,13 +12,20 @@ import {
 import { assertIsDefined } from './utils/assert'
 import MessageBuilder from './messages/serverMessageBuilder'
 import { Player } from './game/clientGameState'
-import { Game, MAX_NUM_PLAYERS } from './game/game'
+import { Game, GameAdvanceState, MAX_NUM_PLAYERS } from './game/game'
 import { Logger } from './utils/logger'
-import { calculateMove } from './game/ai'
+import { simulateAi } from './game/ai'
 
 // export const onConnect = (ws: ExtWebSocket): void => {}
 
-const messageAllGamePlayers = <T extends GameMessage>(
+// TODO: When players disconnect, check if they are in a game, and if they are:
+// * Either transform their player into an AI player or remove them from the game
+export const onClose = (ws: ExtWebSocket) => {
+  if (ws.id == null) return
+  storage.connections.delete(ws.id)
+}
+
+export const messageAllGamePlayers = <T extends GameMessage>(
   game: Game,
   message: (p: PlayerID) => T
 ) => {
@@ -33,28 +40,6 @@ const messageAllGamePlayers = <T extends GameMessage>(
       )
     else conn.sendObject(message(p))
   })
-}
-
-const AI_PLAY_DELAY = 1000
-const aiPlay = (game: Game, gameId: GameID) => {
-  const nextPlayerId = game.playerTurn
-  const nextPlayer = storage.players.get(nextPlayerId)
-  assertIsDefined(nextPlayer)
-
-  if (!nextPlayer.isAi) return
-
-  const aiMove = calculateMove(game.playerCards[nextPlayer.id])
-  game.executePlayerMove(nextPlayerId, aiMove)
-  game.advance()
-  messageAllGamePlayers(game, (p) =>
-    MessageBuilder.gameStarted(storage.extractClientGameData(gameId, p))
-  )
-
-  setTimeout(() => aiPlay(game, gameId), AI_PLAY_DELAY)
-}
-
-const simulateAi = (game: Game, gameId: GameID) => {
-  setTimeout(() => aiPlay(game, gameId), AI_PLAY_DELAY)
 }
 
 export const onMessage = (ws: ExtWebSocket, messageString: string): void => {
@@ -78,9 +63,10 @@ export const onMessage = (ws: ExtWebSocket, messageString: string): void => {
 
       break
     }
+
     case GameMessageType.JoinGame: {
-      const joinGameMessage = message as MJoinGame
-      const gameId = joinGameMessage.gameId
+      const { gameId } = message as MJoinGame
+      let { playerId } = message as MJoinGame
       const game = storage.games.get(gameId)
 
       // Invalid game id
@@ -111,30 +97,24 @@ export const onMessage = (ws: ExtWebSocket, messageString: string): void => {
         return
       }
 
-      // Add player to game
-      const playerId = storage.AddPlayer(ws.id)
+      // If player hasn't been created yet, create it
+      if (playerId == null) playerId = storage.AddPlayer(ws.id)
       game.addPlayer(playerId)
+
       const clientGameData = storage.extractClientGameData(gameId, playerId)
       assertIsDefined(clientGameData)
-      ws.sendObject(MessageBuilder.gameJoined(clientGameData))
 
       // Let other players know a new player joined
       const joinedPlayerData = storage.players.get(playerId)
       assertIsDefined(joinedPlayerData)
       const clientPlayerData: Player = joinedPlayerData as Player
 
-      game.players.forEach((p) => {
-        if (p == playerId) return // Don't tell a player about themselves
-        const player = storage.players.get(p)
-        assertIsDefined(player)
-
-        const conn = storage.connections.get(player.connectionId)
-        assertIsDefined(conn)
-
-        conn.sendObject(
-          MessageBuilder.playerJoined(clientPlayerData, game.players)
-        )
+      // Let players know game started
+      messageAllGamePlayers(game, (p) => {
+        if (p == playerId) return MessageBuilder.gameJoined(clientGameData)
+        return MessageBuilder.playerJoined(clientPlayerData, game.players)
       })
+
       break
     }
 
@@ -196,11 +176,17 @@ export const onMessage = (ws: ExtWebSocket, messageString: string): void => {
       if (game.playerTurn != playerId) return
 
       game.executePlayerMove(playerId, playerMove)
-      game.advance()
+      const gameAdvanceState = game.advance()
 
-      messageAllGamePlayers(game, (p) =>
-        MessageBuilder.turnChanged(storage.extractClientGameData(gameId, p))
-      )
+      if (gameAdvanceState == GameAdvanceState.TurnChanged) {
+        messageAllGamePlayers(game, (p) =>
+          MessageBuilder.turnChanged(storage.extractClientGameData(gameId, p))
+        )
+      } else if (gameAdvanceState == GameAdvanceState.DealChanged) {
+        messageAllGamePlayers(game, (p) =>
+          MessageBuilder.dealChanged(storage.extractClientGameData(gameId, p))
+        )
+      }
 
       simulateAi(game, gameId)
 

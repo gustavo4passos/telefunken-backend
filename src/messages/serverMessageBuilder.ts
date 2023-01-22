@@ -8,6 +8,7 @@ import {
   MGameJoined,
   MGameStarted,
   MPlayerJoined,
+  MDealChanged,
   MTurnChanged
 } from './gameMessages'
 
@@ -44,10 +45,15 @@ const turnChanged = (gameData: GameData): MTurnChanged => ({
   gameData
 })
 
+const dealChanged = (gameData: GameData): MDealChanged => ({
+  type: GameMessageType.DealChanged,
+  gameData
+})
 export default {
   gameCreated,
   gameJoined,
   playerJoined,
   gameStarted,
-  turnChanged
+  turnChanged,
+  dealChanged
 }

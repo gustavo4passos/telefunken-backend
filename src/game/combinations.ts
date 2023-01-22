@@ -1,14 +1,22 @@
 import { Card, CardRank, getCardRank, getCardSuit, isJoker } from './deck'
 
+export const MIN_DEAL_SIZE = 3
+export const MAX_DEAL_SIZE = 6
+
 // -1 for no size constraint
+export const NO_SIZE_CONTRAINT = -1
 export interface CombinationConstraint {
-  size: number
+  sizeConstraint: number
   pure: boolean
 }
 
 export interface RunGap {
   valid: boolean
   pos: number
+}
+
+export const buildCombinationConstraint = (size: number, pure = false) => {
+  return { sizeConstraint: size, pure }
 }
 
 export const rankSortFn = (ca: Card, cb: Card) => {
@@ -25,6 +33,8 @@ export const rankSortFn = (ca: Card, cb: Card) => {
 
 // Obs: Set and runs checks do not consider the amount of cards,
 // caller is responsible for that
+// This is done so smaller than acceptable sets and runs can be checked (necessary to
+// test impure combinations)
 const isValidSet = (cards: Array<Card>) => {
   const r = getCardRank(cards[0])
 
@@ -35,9 +45,13 @@ const isValidSet = (cards: Array<Card>) => {
 }
 
 export const isValidRun = (rankSortedCards: Array<Card>) => {
+  if (!areCardsSameSuit(rankSortedCards)) return false
+
   for (let i = 1; i < rankSortedCards.length; i++) {
     // Cards must be consecutive
-    const distance = rankSortedCards[i] - rankSortedCards[i - 1]
+    const ra = getCardRank(rankSortedCards[i])
+    const rb = getCardRank(rankSortedCards[i - 1])
+    const distance = ra - rb
     if (distance != 1) return false
   }
 
@@ -83,9 +97,20 @@ export interface CombinationEvaulation {
   wildCardPos: number
 }
 
-export const isValidCombination = (cards: Array<Card>, pure = false) => {
-  // Sets need to be between 3 and 6 cards long
-  if (cards.length < 3 || cards.length > 5) return false
+export const isValidCombination = (
+  cards: Array<Card>,
+  constraint: CombinationConstraint = {
+    sizeConstraint: NO_SIZE_CONTRAINT,
+    pure: false
+  }
+) => {
+  const { sizeConstraint, pure } = constraint
+
+  if (sizeConstraint != NO_SIZE_CONTRAINT && cards.length != sizeConstraint)
+    return false
+  // Without constraint, sets need can be between 3 and 6 cards long
+  else if (cards.length < MIN_DEAL_SIZE || cards.length > MAX_DEAL_SIZE)
+    return false
 
   // Separate the jokers from the combination
   const jokers = cards.filter((c) => isJoker(c))
@@ -110,7 +135,6 @@ export const isValidCombination = (cards: Array<Card>, pure = false) => {
 
   // If allowing jokers and wild cards, check if it combination is valid by considering them
   if (!pure) {
-    console.log('kkk')
     // Is combination valid by considering the joker?
     if (jokers.length > 0) {
       // Sets with jokers are also valid without, so they would've been identified previously

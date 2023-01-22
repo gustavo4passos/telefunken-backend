@@ -30,6 +30,17 @@ export const isJoker = (card: Card): boolean => {
 
 const getCardNumberInDeck = (card: Card) => card % 54
 
+export const getCardValue = (card: Card): number => {
+  const s = getCardSuit(card)
+  if (s == CardSuit.Joker) return 20
+
+  const r = getCardRank(card)
+  if (r == CardRank.Ace) return 15
+  if (r == CardRank.Two) return 20
+  if (r >= CardRank.Three && r <= CardRank.Nine) return r // Between 3 and 9
+  return 10 // Between 10 and K
+}
+
 export const getCardSuit = (card: Card): CardSuit => {
   // Handle multiple decks
   const singleDeckNumber = getCardNumberInDeck(card)
@@ -62,7 +73,7 @@ export const getCardRank = (card: Card): CardRank => {
   return rankNumber as CardRank
 }
 
-const shuffleDeck = (deck: Array<Card>): Array<Card> => {
+export const shuffleDeck = (deck: Array<Card>): Array<Card> => {
   let m = deck.length
 
   // Fisher–Yates Shuffle

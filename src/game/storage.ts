@@ -66,13 +66,15 @@ export class Storage {
       playerId,
       state: game.state,
       players: this.gatherPlayerDataFromGame(gameId),
-      round: game.round,
+      deal: game.deal,
       playerTurn: game.playerTurn,
       melds: game.melds,
       playerCards: game.playerCards[playerId],
       otherPlayerCards,
       discardPile: game.discardPile,
-      playerOrder: game.players
+      playerOrder: game.players,
+      dealConstraintCompliance: game.dealConstraintCompliance[playerId],
+      dealConstraints: game.dealConstraints
     }
   }
 
