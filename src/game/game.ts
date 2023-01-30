@@ -10,13 +10,16 @@ import {
   PlayerMove,
   ServerGameData
 } from './gameState'
-import { buildCombinationConstraint, isValidCombination } from './combinations'
+import { isValidCombination, isValidExtension } from './combinations'
+import { Logger } from '../utils/logger'
+import { getNiceStringSetOfCards } from '../utils/print'
+import { DEAL_CONSTRAINTS, NUM_DEALS } from './constraints'
 
 export const MAX_NUM_PLAYERS = 4
-const MIN_NUM_PLAYERS = 2
+export const MIN_NUM_PLAYERS = 2
 const NUM_CARDS = 54 * 2
 const DEAL_SIZE = 13
-const NUM_DEALS = 6
+export const TURN_CHANGE_DELAY = 1000
 
 export enum GameAdvanceState {
   Invalid,
@@ -31,6 +34,7 @@ export class Game implements ServerGameData {
   players: Array<PlayerID>
   owner: PlayerID
   deal: number
+  turn: number
   dealer: PlayerID
   playerTurn: PlayerID
   melds: Record<PlayerID, Array<Meld>>
@@ -39,6 +43,7 @@ export class Game implements ServerGameData {
   dealConstraints: Array<DealConstraint>
   dealConstraintCompliance: Record<PlayerID, Array<boolean>>
   dealsEndState: Array<DealEndState>
+  boughtThisRound: Record<PlayerID, boolean>
 
   constructor(owner: PlayerID) {
     this.owner = owner
@@ -56,6 +61,9 @@ export class Game implements ServerGameData {
       [owner]: this.buildNegativeDealConstraintComplianceArray(NUM_DEALS)
     }
     this.dealsEndState = []
+    this.boughtThisRound = {}
+    this.boughtThisRound[owner] = false
+    this.turn = 0
   }
 
   addPlayer(playerId: PlayerID): boolean {
@@ -68,6 +76,8 @@ export class Game implements ServerGameData {
     this.playerCards[playerId] = []
     this.dealConstraintCompliance[playerId] =
       this.buildNegativeDealConstraintComplianceArray(NUM_DEALS)
+
+    this.boughtThisRound[playerId] = false
 
     return true
   }
@@ -87,6 +97,7 @@ export class Game implements ServerGameData {
     this.playerTurn = this.players[startingPlayerIndex]
     this.discardPile.push(this.deck.splice(-1)[0])
     this.playerCards[this.playerTurn].push(this.deck.splice(-1)[0])
+    this.dealsEndState.push(this.createEmptyDealEndState())
     return true
   }
 
@@ -100,7 +111,10 @@ export class Game implements ServerGameData {
     if (!this.canPlayerMeld(playerId, playerMove.melds)) return false
 
     // If player is trying to extend, check if meld is valid
-    if (!this.canPlayerExtend(playerId, playerMove.meldExtensions)) return false
+    if (!this.canPlayerExtend(playerId, playerMove.meldExtensions)) {
+      Logger.logError("Player can't play because extensions are invalid")
+      return false
+    }
 
     const totalCardsmelded = playerMove.melds.reduce((p, m) => p + m.length, 0)
     const totalCardsInExtensions = Object.keys(
@@ -113,13 +127,19 @@ export class Game implements ServerGameData {
         this.playerCards[playerId].length &&
       playerMove.discards == null
     ) {
+      Logger.logError(
+        "Player can't play because they're trying not to discard even though play does not empty their hand"
+      )
       return false
     }
 
     // Player is legally trying to discard
     if (playerMove.discards != null) {
       // TODO: This do not consider if the player discard is in one of their current melds!
-      if (!this.canPlayerDiscard(playerId, playerMove.discards)) return false
+      if (!this.canPlayerDiscard(playerId, playerMove.discards)) {
+        Logger.logError("Player can't play because discard is invalid")
+        return false
+      }
 
       // Add discard to discard pile and remove it from player's hand
       this.discardPile.push(playerMove.discards)
@@ -171,20 +191,42 @@ export class Game implements ServerGameData {
     const playerCards = this.playerCards[playerId]
     for (const meld of melds) {
       for (const card of meld) {
-        if (!playerCards.find((c) => c == card)) return false
+        if (playerCards.find((c) => c == card) == undefined) {
+          Logger.logError(
+            `Player can't meld because they do not have the card: ${card}`
+          )
+          console.log('Player cards: ', playerCards)
+          return false
+        }
       }
     }
 
     if (!this.dealConstraintCompliance[playerId][this.deal]) {
       const dealConstraint = this.dealConstraints[this.deal]
-      if (melds.length != dealConstraint.size) return false
+      if (melds.length != dealConstraint.size) {
+        Logger.logError(
+          `Player can't meld because they it does not satisfy the deal constraint size`
+        )
+        return false
+      }
 
       for (const meld of melds)
         if (!isValidCombination(meld, dealConstraint.combinationConstraint)) {
+          Logger.logError(
+            `Player can't meld because they it is an invalid combination for the deal constraint - ${getNiceStringSetOfCards(
+              meld
+            )}`
+          )
           return false
         }
     } else {
-      for (const meld of melds) if (!isValidCombination(meld)) return false
+      for (const meld of melds)
+        if (!isValidCombination(meld)) {
+          Logger.logError(
+            `Player can't meld because they it is an invalid combination`
+          )
+          return false
+        }
     }
 
     return true
@@ -218,18 +260,42 @@ export class Game implements ServerGameData {
       // If card is already in the meld, play is illegal
 
       if (meldId >= this.melds[playerId].length) return false
-      if (
-        !this.isExtensionValid(this.melds[playerId][meldId], meldExtensionCards)
-      )
+      if (!isValidExtension(this.melds[playerId][meldId], meldExtensionCards))
         return false
     }
 
     return true
   }
 
-  isExtensionValid(meld: Meld, extensionCards: Array<Card>) {
-    // Meld id can't be outside melds array bounds
-    return isValidCombination([...meld, ...extensionCards])
+  buyCard(playerId: PlayerID, card: Card) {
+    // Player can only buy once per round
+    if (this.boughtThisRound[playerId]) {
+      Logger.logError("Player can't buy this round because they already bought")
+      return false
+    }
+
+    // Check if discard pile is empty
+    if (this.discardPile.length == 0) return false
+
+    // Check if card is on top of the discard pile
+    if (card != this.discardPile[this.discardPile.length - 1]) return false
+
+    // Add card to player hand
+    this.playerCards[playerId].push(this.discardPile.splice(-1)[0])
+
+    // Also buy an extra card
+    const cardBought = this.deck.splice(-1)[0]
+    this.playerCards[playerId].push(cardBought)
+
+    // If deck has been exhausted, shuffle discard pile
+    if (this.deck.length == 0) {
+      this.shuffleDiscardPileOntoDeck()
+      this.discardPile = [this.deck.splice(-1)[0]]
+    }
+
+    this.dealsEndState[this.deal][playerId].cardsBought.push(cardBought)
+    this.boughtThisRound[playerId] = true
+    return true
   }
 
   canPlayerDiscard(playerId: PlayerID, card: Card) {
@@ -251,7 +317,7 @@ export class Game implements ServerGameData {
   }
 
   advance(): GameAdvanceState {
-    // Can't advance game that is not on progress
+    // Can't advance game that is not in progress
     if (this.state != GameState.InProgress) return GameAdvanceState.Invalid
 
     // Deal ended
@@ -270,9 +336,14 @@ export class Game implements ServerGameData {
         this.shuffleDiscardPileOntoDeck()
         this.discardPile = [this.deck.splice(-1)[0]]
       }
+
       const nextDraw = this.deck.splice(-1)[0]
       this.playerTurn = this.getNextTurnPlayer()
       this.playerCards[this.playerTurn].push(nextDraw)
+
+      this.turn++
+      if (this.turn % this.players.length == 0) this.resetBuyStatus()
+
       return GameAdvanceState.TurnChanged
     }
   }
@@ -282,15 +353,18 @@ export class Game implements ServerGameData {
     this.prepareNextDeal()
   }
 
+  resetBuyStatus() {
+    this.players.forEach((p) => (this.boughtThisRound[p] = false))
+  }
+
   storeDealEndState() {
-    const dealEndState: DealEndState = {}
+    // Store players remaining cards and melds
+    // Cards bought are already stored everytime the player buy a card
     for (const playerId of this.players) {
-      dealEndState[playerId] = {
-        remainingCards: this.playerCards[playerId],
-        melds: this.melds[playerId]
-      }
+      this.dealsEndState[this.deal][playerId].remainingCards =
+        this.playerCards[playerId]
+      this.dealsEndState[this.deal][playerId].melds = this.melds[playerId]
     }
-    this.dealsEndState.push(dealEndState)
   }
 
   prepareNextDeal() {
@@ -309,6 +383,14 @@ export class Game implements ServerGameData {
 
     // Reset melds
     this.players.forEach((p) => (this.melds[p] = []))
+
+    // Reset buy status
+    this.players.forEach((p) => (this.boughtThisRound[p] = false))
+
+    // Create empty deal state
+    this.dealsEndState.push(this.createEmptyDealEndState())
+
+    this.turn = 0
   }
 
   getNextTurnPlayer() {
@@ -341,14 +423,7 @@ export class Game implements ServerGameData {
   }
 
   getDealsConstraints(): Array<DealConstraint> {
-    return [
-      { size: 2, combinationConstraint: buildCombinationConstraint(3) },
-      { size: 1, combinationConstraint: buildCombinationConstraint(4) },
-      { size: 2, combinationConstraint: buildCombinationConstraint(4) },
-      { size: 1, combinationConstraint: buildCombinationConstraint(5) },
-      { size: 2, combinationConstraint: buildCombinationConstraint(5) },
-      { size: 1, combinationConstraint: buildCombinationConstraint(6) }
-    ]
+    return DEAL_CONSTRAINTS
   }
 
   buildNegativeDealConstraintComplianceArray(nDeals: number): Array<boolean> {
@@ -358,6 +433,21 @@ export class Game implements ServerGameData {
   shuffleDiscardPileOntoDeck() {
     this.deck = shuffleDeck(this.discardPile)
     this.discardPile = []
+  }
+
+  createEmptyDealEndState() {
+    const emptyDealEndState: DealEndState = {}
+
+    this.players.forEach(
+      (p) =>
+        (emptyDealEndState[p] = {
+          remainingCards: [],
+          melds: [],
+          cardsBought: []
+        })
+    )
+
+    return emptyDealEndState
   }
 }
 

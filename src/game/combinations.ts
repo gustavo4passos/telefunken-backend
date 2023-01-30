@@ -1,22 +1,13 @@
+import { CombinationConstraint, NO_SIZE_CONTRAINT } from './constraints'
 import { Card, CardRank, getCardRank, getCardSuit, isJoker } from './deck'
+import { Meld } from './gameState'
 
-export const MIN_DEAL_SIZE = 3
-export const MAX_DEAL_SIZE = 6
-
-// -1 for no size constraint
-export const NO_SIZE_CONTRAINT = -1
-export interface CombinationConstraint {
-  sizeConstraint: number
-  pure: boolean
-}
+export const MIN_MELD_SIZE = 3
+export const MAX_MELD_SIZE = 6
 
 export interface RunGap {
   valid: boolean
   pos: number
-}
-
-export const buildCombinationConstraint = (size: number, pure = false) => {
-  return { sizeConstraint: size, pure }
 }
 
 export const rankSortFn = (ca: Card, cb: Card) => {
@@ -109,7 +100,7 @@ export const isValidCombination = (
   if (sizeConstraint != NO_SIZE_CONTRAINT && cards.length != sizeConstraint)
     return false
   // Without constraint, sets need can be between 3 and 6 cards long
-  else if (cards.length < MIN_DEAL_SIZE || cards.length > MAX_DEAL_SIZE)
+  else if (cards.length < MIN_MELD_SIZE || cards.length > MAX_MELD_SIZE)
     return false
 
   // Separate the jokers from the combination
@@ -165,4 +156,9 @@ export const isValidCombination = (
     }
   }
   return false
+}
+
+export const isValidExtension = (meld: Meld, extensionCards: Array<Card>) => {
+  // Meld id can't be outside melds array bounds
+  return isValidCombination([...meld, ...extensionCards])
 }

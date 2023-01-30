@@ -1,5 +1,4 @@
-import { DealConstraint } from './game'
-import { GameState, PlayerID } from './gameState'
+import { DealConstraint, DealEndState, GameState, PlayerID } from './gameState'
 
 type GameID = number
 type Card = number
@@ -17,9 +16,13 @@ export interface GameData {
   otherPlayerCards: Record<PlayerID, number>
   discardPile: Array<Card>
   dealConstraintCompliance: Array<boolean>
+  // TODO: Only needs to be sent on dealEnded
+  dealsEndState: Array<DealEndState>
   //TODO: These does not need to be sent everytime, just once. Maybe GameStarted or GameJoined
   dealConstraints: Array<DealConstraint>
   playerOrder: Array<PlayerID>
+  boughtThisRound: boolean
+  isOwner: boolean
 }
 
 export interface Player {

@@ -1,4 +1,5 @@
 import { GameData, Player } from '../game/clientGameState'
+import { Card } from '../game/deck'
 import { PlayerID } from '../game/gameState'
 import {
   GameMessageType,
@@ -40,20 +41,45 @@ const playerJoined = (
   playerOrder
 })
 
-const turnChanged = (gameData: GameData): MTurnChanged => ({
-  type: GameMessageType.TurnChanged,
-  gameData
-})
+const turnChanged = (gameData: GameData): MTurnChanged => {
+  return {
+    type: GameMessageType.TurnChanged,
+    gameData
+  }
+}
 
 const dealChanged = (gameData: GameData): MDealChanged => ({
   type: GameMessageType.DealChanged,
   gameData
 })
+
+const cardBought = (
+  playerId: PlayerID,
+  success: boolean | null,
+  card: Card | null,
+  cardDrawn: Card | null,
+  gameData: GameData
+) => ({
+  type: GameMessageType.CardBought,
+  playerId,
+  success,
+  cardDrawn,
+  card,
+  gameData
+})
+
+const gameEnded = (gameData: GameData) => ({
+  type: GameMessageType.GameEnded,
+  gameData
+})
+
 export default {
   gameCreated,
   gameJoined,
   playerJoined,
   gameStarted,
   turnChanged,
-  dealChanged
+  gameEnded,
+  dealChanged,
+  cardBought
 }

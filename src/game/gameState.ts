@@ -1,5 +1,5 @@
 import { ConnectionID } from '../connection/socket'
-import { CombinationConstraint } from './combinations'
+import { CombinationConstraint } from './constraints'
 import { Card } from './deck'
 
 export type PlayerID = number
@@ -25,6 +25,7 @@ export enum GameState {
 export interface PlayerDealEndState {
   remainingCards: Array<Card>
   melds: Array<Meld>
+  cardsBought: Array<Card>
 }
 
 export type DealEndState = Record<PlayerID, PlayerDealEndState>

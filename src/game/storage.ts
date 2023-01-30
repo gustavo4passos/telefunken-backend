@@ -74,7 +74,10 @@ export class Storage {
       discardPile: game.discardPile,
       playerOrder: game.players,
       dealConstraintCompliance: game.dealConstraintCompliance[playerId],
-      dealConstraints: game.dealConstraints
+      dealConstraints: game.dealConstraints,
+      boughtThisRound: game.boughtThisRound[playerId],
+      dealsEndState: game.dealsEndState,
+      isOwner: game.owner == playerId
     }
   }
 
@@ -93,6 +96,10 @@ export class Storage {
 
   isValidGame(gameId: GameID) {
     return this.games.get(gameId) != undefined
+  }
+
+  isValidPlayer(playerId: PlayerID): boolean {
+    return this.players.get(playerId) != undefined
   }
 }
 
