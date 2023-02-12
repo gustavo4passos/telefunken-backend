@@ -3,6 +3,7 @@ import {
   DealConstraint,
   DealEndState,
   GameState,
+  INITIAL_N_CHIPS,
   INVALID_PLAYER_ID,
   Meld,
   MeldID,
@@ -34,8 +35,8 @@ export class Game implements ServerGameData {
   players: Array<PlayerID>
   owner: PlayerID
   deal: number
-  turn: number
   dealer: PlayerID
+  currentDealTurn: number
   playerTurn: PlayerID
   melds: Record<PlayerID, Array<Meld>>
   playerCards: Record<PlayerID, Array<Card>>
@@ -44,6 +45,7 @@ export class Game implements ServerGameData {
   dealConstraintCompliance: Record<PlayerID, Array<boolean>>
   dealsEndState: Array<DealEndState>
   boughtThisRound: Record<PlayerID, boolean>
+  playerChips: Record<PlayerID, number>
 
   constructor(owner: PlayerID) {
     this.owner = owner
@@ -63,7 +65,8 @@ export class Game implements ServerGameData {
     this.dealsEndState = []
     this.boughtThisRound = {}
     this.boughtThisRound[owner] = false
-    this.turn = 0
+    this.currentDealTurn = 0
+    this.playerChips = { [owner]: INITIAL_N_CHIPS }
   }
 
   addPlayer(playerId: PlayerID): boolean {
@@ -78,6 +81,7 @@ export class Game implements ServerGameData {
       this.buildNegativeDealConstraintComplianceArray(NUM_DEALS)
 
     this.boughtThisRound[playerId] = false
+    this.playerChips[playerId] = INITIAL_N_CHIPS
 
     return true
   }
@@ -188,6 +192,9 @@ export class Game implements ServerGameData {
     // No melds are always ok
     if (melds.length == 0) return true
 
+    // Can't meld on first player turn
+    if (this.isFirstDealTurn(this.currentDealTurn)) return false
+
     const playerCards = this.playerCards[playerId]
     for (const meld of melds) {
       for (const card of meld) {
@@ -274,6 +281,12 @@ export class Game implements ServerGameData {
       return false
     }
 
+    if (this.playerChips[playerId] < 1) {
+      Logger.logError(
+        `Player ${playerId} can't buy because it has no more chips`
+      )
+      return false
+    }
     // Check if discard pile is empty
     if (this.discardPile.length == 0) return false
 
@@ -295,6 +308,7 @@ export class Game implements ServerGameData {
 
     this.dealsEndState[this.deal][playerId].cardsBought.push(cardBought)
     this.boughtThisRound[playerId] = true
+    this.playerChips[playerId]--
     return true
   }
 
@@ -341,8 +355,8 @@ export class Game implements ServerGameData {
       this.playerTurn = this.getNextTurnPlayer()
       this.playerCards[this.playerTurn].push(nextDraw)
 
-      this.turn++
-      if (this.turn % this.players.length == 0) this.resetBuyStatus()
+      this.currentDealTurn++
+      if (this.currentDealTurn % this.players.length == 0) this.resetBuyStatus()
 
       return GameAdvanceState.TurnChanged
     }
@@ -390,7 +404,7 @@ export class Game implements ServerGameData {
     // Create empty deal state
     this.dealsEndState.push(this.createEmptyDealEndState())
 
-    this.turn = 0
+    this.currentDealTurn = 0
   }
 
   getNextTurnPlayer() {
@@ -448,6 +462,10 @@ export class Game implements ServerGameData {
     )
 
     return emptyDealEndState
+  }
+
+  isFirstDealTurn(turn: number) {
+    return Math.floor(turn / this.players.length) < 1
   }
 }
 

@@ -10,96 +10,100 @@ export const calculateMove = (cards: Array<Card>): PlayerMove => {
   return { melds: [], discards: cards[0], meldExtensions: {} }
 }
 
-const AI_PLAY_DELAY = 2000
+const AI_PLAY_DELAY = 50
 
 // TODO: AI Should buy when it makes sense
 // TODO: AI Should also build suit combinations
 export const calculateMoveSmart = (
   cards: Array<Card>,
+  canMeld: boolean,
   dealConstraint?: DealConstraint
 ): PlayerMove => {
-  const rankSortedCards: Record<CardRank, Array<Card>> = {
-    [CardRank.Ace]: [],
-    [CardRank.Two]: [],
-    [CardRank.Three]: [],
-    [CardRank.Four]: [],
-    [CardRank.Five]: [],
-    [CardRank.Six]: [],
-    [CardRank.Seven]: [],
-    [CardRank.Eight]: [],
-    [CardRank.Nine]: [],
-    [CardRank.Ten]: [],
-    [CardRank.Jack]: [],
-    [CardRank.Queen]: [],
-    [CardRank.King]: []
-  }
-  const jokers = []
+  let finalMelds: Array<Meld> = []
 
-  for (const card of cards) {
-    const s = getCardSuit(card)
-    if (s == CardSuit.Joker) {
-      jokers.push(card)
-      continue
+  if (canMeld) {
+    const rankSortedCards: Record<CardRank, Array<Card>> = {
+      [CardRank.Ace]: [],
+      [CardRank.Two]: [],
+      [CardRank.Three]: [],
+      [CardRank.Four]: [],
+      [CardRank.Five]: [],
+      [CardRank.Six]: [],
+      [CardRank.Seven]: [],
+      [CardRank.Eight]: [],
+      [CardRank.Nine]: [],
+      [CardRank.Ten]: [],
+      [CardRank.Jack]: [],
+      [CardRank.Queen]: [],
+      [CardRank.King]: []
+    }
+    const jokers = []
+
+    for (const card of cards) {
+      const s = getCardSuit(card)
+      if (s == CardSuit.Joker) {
+        jokers.push(card)
+        continue
+      }
+
+      const r = getCardRank(card)
+      if (rankSortedCards[r] == undefined) rankSortedCards[r] = []
+
+      rankSortedCards[r].push(card)
     }
 
-    const r = getCardRank(card)
-    if (rankSortedCards[r] == undefined) rankSortedCards[r] = []
+    const validCombinationsRank: Array<CardRank> = []
 
-    rankSortedCards[r].push(card)
-  }
-
-  const validCombinationsRank: Array<CardRank> = []
-
-  for (const rankStr in rankSortedCards) {
-    const rank = Number(rankStr) as CardRank
-    if (rankSortedCards[rank].length >= MIN_MELD_SIZE) {
-      validCombinationsRank.push(rank)
-      // If combination is too big, remove extra cards
-      if (rankSortedCards[rank].length > MAX_MELD_SIZE) {
-        rankSortedCards[rank] = rankSortedCards[rank].splice(0, MAX_MELD_SIZE)
+    for (const rankStr in rankSortedCards) {
+      const rank = Number(rankStr) as CardRank
+      if (rankSortedCards[rank].length >= MIN_MELD_SIZE) {
+        validCombinationsRank.push(rank)
+        // If combination is too big, remove extra cards
+        if (rankSortedCards[rank].length > MAX_MELD_SIZE) {
+          rankSortedCards[rank] = rankSortedCards[rank].splice(0, MAX_MELD_SIZE)
+        }
+      }
+      // If the combination is missing one card to be valid, test if we can add a joker
+      else if (rankSortedCards[rank].length == 2 && jokers.length > 0) {
+        rankSortedCards[rank].push(jokers.splice(0, 1)[0])
+        validCombinationsRank.push(rank)
       }
     }
-    // If the combination is missing one card to be valid, test if we can add a joker
-    else if (rankSortedCards[rank].length == 2 && jokers.length > 0) {
-      rankSortedCards[rank].push(jokers.splice(0, 1)[0])
-      validCombinationsRank.push(rank)
-    }
-  }
 
-  const validMelds = []
+    const validMelds = []
 
-  // Filter all valid melds according to combination constraint, if present
-  for (const rank of validCombinationsRank) {
-    if (dealConstraint != undefined) {
-      // If meld is shorted than constraint requires, skip it
-      if (
-        rankSortedCards[rank].length <
-        dealConstraint.combinationConstraint.sizeConstraint
-      )
-        continue
-
-      // If meld is longer than constraint requires, trim it
-      if (
-        rankSortedCards[rank].length >
-        dealConstraint.combinationConstraint.sizeConstraint
-      ) {
-        rankSortedCards[rank].splice(
-          0,
+    // Filter all valid melds according to combination constraint, if present
+    for (const rank of validCombinationsRank) {
+      if (dealConstraint != undefined) {
+        // If meld is shorted than constraint requires, skip it
+        if (
+          rankSortedCards[rank].length <
           dealConstraint.combinationConstraint.sizeConstraint
         )
+          continue
+
+        // If meld is longer than constraint requires, trim it
+        if (
+          rankSortedCards[rank].length >
+          dealConstraint.combinationConstraint.sizeConstraint
+        ) {
+          rankSortedCards[rank].splice(
+            0,
+            dealConstraint.combinationConstraint.sizeConstraint
+          )
+        }
       }
+
+      validMelds.push(rankSortedCards[rank])
     }
 
-    validMelds.push(rankSortedCards[rank])
+    if (dealConstraint != undefined) {
+      if (validMelds.length >= dealConstraint.size) {
+        // If there are more melds than the constraint accepts, trim it
+        finalMelds = [...validMelds.splice(0, dealConstraint.size)]
+      }
+    } else finalMelds = validMelds
   }
-
-  let finalMelds: Array<Meld> = []
-  if (dealConstraint != undefined) {
-    if (validMelds.length >= dealConstraint.size) {
-      // If there are more melds than the constraint accepts, trim it
-      finalMelds = [...validMelds.splice(0, dealConstraint.size)]
-    }
-  } else finalMelds = validMelds
 
   // Remove melds from player hand before discarding
   cards = cards.filter((c) => {
@@ -126,6 +130,7 @@ const aiPlay = (game: Game, gameId: GameID) => {
     : game.dealConstraints[game.deal]
   const aiMove = calculateMoveSmart(
     game.playerCards[currentPlayer.id],
+    !game.isFirstDealTurn(game.currentDealTurn),
     dealConstraint
   )
 

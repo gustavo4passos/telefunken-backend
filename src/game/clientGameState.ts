@@ -23,6 +23,8 @@ export interface GameData {
   playerOrder: Array<PlayerID>
   boughtThisRound: boolean
   isOwner: boolean
+  currentDealTurn: number
+  playerChips: Record<PlayerID, number>
 }
 
 export interface Player {

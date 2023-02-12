@@ -77,7 +77,9 @@ export class Storage {
       dealConstraints: game.dealConstraints,
       boughtThisRound: game.boughtThisRound[playerId],
       dealsEndState: game.dealsEndState,
-      isOwner: game.owner == playerId
+      isOwner: game.owner == playerId,
+      currentDealTurn: game.currentDealTurn,
+      playerChips: game.playerChips
     }
   }
 

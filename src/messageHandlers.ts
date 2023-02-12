@@ -261,10 +261,27 @@ export const onMessage = (ws: ExtWebSocket, messageString: string): void => {
       if (!success || player == null || game == null) return
 
       // It's not the player turn
-      // TODO: This should return an error to the client?
-      if (game.playerTurn != playerId) return
+      if (game.playerTurn != playerId) {
+        ws.sendObject(
+          MessageBuilder.playFailed(
+            storage.extractClientGameData(gameId, playerId)
+          )
+        )
+        return
+      }
 
-      if (!game.executePlayerMove(playerId, playerMove)) return
+      if (!game.executePlayerMove(playerId, playerMove)) {
+        Logger.logError(
+          `Playing is trying an invalid move: id: ${playerId} move: ${JSON.stringify(
+            playerMove
+          )}`
+        )
+        ws.sendObject(
+          MessageBuilder.playFailed(
+            storage.extractClientGameData(gameId, playerId)
+          )
+        )
+      }
       const gameAdvanceState = game.advance()
 
       communicateGameAdvanceState(gameAdvanceState, game, gameId)

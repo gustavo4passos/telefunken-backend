@@ -73,6 +73,11 @@ const gameEnded = (gameData: GameData) => ({
   gameData
 })
 
+const playFailed = (gameData: GameData) => ({
+  type: GameMessageType.PlayFailed,
+  gameData
+})
+
 export default {
   gameCreated,
   gameJoined,
@@ -81,5 +86,6 @@ export default {
   turnChanged,
   gameEnded,
   dealChanged,
-  cardBought
+  cardBought,
+  playFailed
 }
