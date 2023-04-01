@@ -16,6 +16,7 @@ import { Logger } from '../utils/logger'
 import { getNiceStringSetOfCards } from '../utils/print'
 import { DEAL_CONSTRAINTS, NUM_DEALS } from './constraints'
 
+export const INVALID_TURN = -1
 export const MAX_NUM_PLAYERS = 4
 export const MIN_NUM_PLAYERS = 2
 const NUM_CARDS = 54 * 2
@@ -46,6 +47,7 @@ export class Game implements ServerGameData {
   dealsEndState: Array<DealEndState>
   boughtThisRound: Record<PlayerID, boolean>
   playerChips: Record<PlayerID, number>
+  extraRoundStartedFromTurn: number
 
   constructor(owner: PlayerID) {
     this.owner = owner
@@ -67,6 +69,7 @@ export class Game implements ServerGameData {
     this.boughtThisRound[owner] = false
     this.currentDealTurn = 0
     this.playerChips = { [owner]: INITIAL_N_CHIPS }
+    this.extraRoundStartedFromTurn = INVALID_TURN
   }
 
   addPlayer(playerId: PlayerID): boolean {
@@ -111,24 +114,29 @@ export class Game implements ServerGameData {
 
   // If any part of the move is invalid, whole move is ignored
   executePlayerMove(playerId: PlayerID, playerMove: PlayerMove) {
-    // If player is trying to meld, check if meld is valid
-    if (!this.canPlayerMeld(playerId, playerMove.melds)) return false
+    const [areModificationsValid, updatedPlayerCards, updatedMelds] =
+      this.areModificationsValid(playerMove, playerId)
 
-    // If player is trying to extend, check if meld is valid
-    if (!this.canPlayerExtend(playerId, playerMove.meldExtensions)) {
-      Logger.logError("Player can't play because extensions are invalid")
+    if (
+      !areModificationsValid ||
+      updatedPlayerCards == undefined ||
+      updatedMelds == undefined
+    )
       return false
-    }
+
+    // If player is trying to meld, check if meld is valid
+    if (!this.canPlayerMeld(playerId, playerMove.melds, updatedPlayerCards))
+      return false
 
     const totalCardsmelded = playerMove.melds.reduce((p, m) => p + m.length, 0)
-    const totalCardsInExtensions = Object.keys(
-      playerMove.meldExtensions
-    ).reduce((p, e) => p + playerMove.meldExtensions[Number(e)].length, 0)
+    const totalCardsInExtensions = playerMove.meldModifications.reduce(
+      (p, m) => p + (m.data.kind == 'extension' ? 1 : 0),
+      0
+    )
 
     // Player can only skip discarding if melds + extensions leave them with an empty hand
     if (
-      totalCardsmelded + totalCardsInExtensions <
-        this.playerCards[playerId].length &&
+      totalCardsmelded + totalCardsInExtensions < updatedPlayerCards.length &&
       playerMove.discards == null
     ) {
       Logger.logError(
@@ -138,13 +146,19 @@ export class Game implements ServerGameData {
     }
 
     // Player is legally trying to discard
-    if (playerMove.discards != null) {
-      // TODO: This do not consider if the player discard is in one of their current melds!
-      if (!this.canPlayerDiscard(playerId, playerMove.discards)) {
-        Logger.logError("Player can't play because discard is invalid")
-        return false
-      }
+    // TODO: This do not consider if the player discard is in one of their current melds!
+    if (
+      playerMove.discards != null &&
+      !this.canPlayerDiscard(updatedPlayerCards, playerMove.discards)
+    ) {
+      Logger.logError("Player can't play because discard is invalid")
+      return false
+    }
 
+    // Play is valid, update player cards and melds
+    this.melds = updatedMelds
+    this.playerCards[playerId] = updatedPlayerCards
+    if (playerMove.discards != null) {
       // Add discard to discard pile and remove it from player's hand
       this.discardPile.push(playerMove.discards)
       const cardIndex = this.playerCards[playerId].findIndex(
@@ -153,7 +167,6 @@ export class Game implements ServerGameData {
       this.playerCards[playerId].splice(cardIndex, 1)
     }
 
-    // At this point, play is valid
     // Add melds from moves to the player melds and remove it from their hand
     for (const meld of playerMove.melds) {
       this.melds[playerId].push(meld)
@@ -162,24 +175,12 @@ export class Game implements ServerGameData {
       )
     }
 
-    // And add extensions to melds
-    for (const mis of Object.keys(playerMove.meldExtensions)) {
-      const meldId = Number(mis)
-      const meld = this.melds[playerId][meldId]
-      this.melds[playerId][meldId] = [
-        ...meld,
-        ...playerMove.meldExtensions[meldId]
-      ]
-
-      // Remove clards from player hand
-      this.playerCards[playerId] = this.playerCards[playerId].filter(
-        (c) => playerMove.meldExtensions[meldId].indexOf(c) == -1
-      )
-    }
-
     // At this point, if melds are not empty, it also means the player have satisfied the deal constraint
     if (playerMove.melds.length > 0)
       this.dealConstraintCompliance[playerId][this.deal] = true
+
+    if (playerMove.discards == null)
+      this.extraRoundStartedFromTurn = this.currentDealTurn
 
     return true
   }
@@ -188,14 +189,17 @@ export class Game implements ServerGameData {
   // * Check if player has those cards
   // * Check if meld is valid
   // * Check if meld can be played at this point of the turn
-  canPlayerMeld(playerId: PlayerID, melds: Array<Meld>) {
+  canPlayerMeld(
+    playerId: PlayerID,
+    melds: Array<Meld>,
+    playerCards: Array<Card>
+  ) {
     // No melds are always ok
     if (melds.length == 0) return true
 
     // Can't meld on first player turn
     if (this.isFirstDealTurn(this.currentDealTurn)) return false
 
-    const playerCards = this.playerCards[playerId]
     for (const meld of melds) {
       for (const card of meld) {
         if (playerCards.find((c) => c == card) == undefined) {
@@ -218,7 +222,10 @@ export class Game implements ServerGameData {
       }
 
       for (const meld of melds)
-        if (!isValidCombination(meld, dealConstraint.combinationConstraint)) {
+        if (
+          isValidCombination(meld, dealConstraint.combinationConstraint)
+            .length == 0
+        ) {
           Logger.logError(
             `Player can't meld because they it is an invalid combination for the deal constraint - ${getNiceStringSetOfCards(
               meld
@@ -228,7 +235,7 @@ export class Game implements ServerGameData {
         }
     } else {
       for (const meld of melds)
-        if (!isValidCombination(meld)) {
+        if (isValidCombination(meld).length == 0) {
           Logger.logError(
             `Player can't meld because they it is an invalid combination`
           )
@@ -237,6 +244,125 @@ export class Game implements ServerGameData {
     }
 
     return true
+  }
+
+  areModificationsValid(
+    playerMove: PlayerMove,
+    playerId: PlayerID
+  ): [
+    boolean,
+    Array<Card> | undefined,
+    Record<PlayerID, Array<Meld>> | undefined
+  ] {
+    // For modifications to be valid:
+    // 1. All hand-to-meld must be in player hands
+    // 2. All extensions must come for player hands
+    // 3. After changes, all melds must remain valid
+    // 4. All meld-to-hand must be in current move melds
+
+    const { meldModifications } = playerMove
+    let playerCards = [...this.playerCards[playerId]]
+    const melds: Record<PlayerID, Array<Meld>> = {}
+    for (const pid in this.melds) {
+      melds[pid] = []
+      for (const m of this.melds[pid]) melds[pid].push([...m])
+    }
+
+    const meldToHandCards: Array<Card> = []
+    const handToMeldCards: Array<Card> = []
+    const meldsModified = new Set<[PlayerID, MeldID]>()
+
+    // 1. All hand-to-meld must be in player hands
+    // 2. All extensions must come for player hands
+    for (const m of meldModifications) {
+      const { meldId, meldPlayerId } = m
+      switch (m.data.kind) {
+        case 'replacement': {
+          const { meldToHand, handToMeld } = m.data
+
+          if (melds[playerId][meldId].findIndex((c) => c == meldToHand) == -1) {
+            Logger.logError(
+              `Can't replace card ${getNiceStringSetOfCards([
+                meldToHand
+              ])} in meld ${meldId} of player ${playerId} because card is not in meld`
+            )
+            return [false, undefined, undefined]
+          }
+
+          if (playerCards.findIndex((c) => c == handToMeld) == -1) {
+            Logger.logError(
+              `Can't replace card ${getNiceStringSetOfCards([
+                handToMeld
+              ])} in meld ${meldId} of player ${playerId} because player is not holding that card`
+            )
+            return [false, undefined, undefined]
+          }
+
+          // Note that meldToHand cards are not added to player hand, because they can only be used for melding
+          // so they'll only be checked against melds
+          playerCards = playerCards.filter((c) => c != handToMeld)
+          melds[playerId][meldId] = [
+            ...melds[playerId][meldId],
+            handToMeld
+          ].filter((c) => c != meldToHand)
+
+          meldsModified.add([playerId, meldId])
+          meldToHandCards.push(meldToHand)
+          handToMeldCards.push(handToMeld)
+          break
+        }
+        case 'extension': {
+          const { card } = m.data
+          const playerCardsLengthBeforeRemoval = playerCards.length
+          playerCards = playerCards.filter((c) => c != card)
+          // Card isn't in player hand
+          if (playerCards.length != playerCardsLengthBeforeRemoval - 1) {
+            Logger.logError(
+              `Extension card ${getNiceStringSetOfCards([
+                card
+              ])} is invalid in extension of player ${playerId}`
+            )
+            return [false, undefined, undefined]
+          }
+
+          melds[meldPlayerId][meldId].push(card)
+          meldsModified.add([meldPlayerId, meldId])
+          break
+        }
+      }
+    }
+
+    // 3. After changes, all melds must remain valid
+    for (const meldModified of meldsModified) {
+      const [playerId, meldId] = meldModified
+      melds[playerId][meldId] = isValidCombination(melds[playerId][meldId])
+      if (melds[playerId][meldId].length == 0) {
+        Logger.logError(
+          `Modifications of ${playerId} are invalid because they make meld ${meldId} invalid`
+        )
+
+        return [false, undefined, undefined]
+      }
+    }
+
+    // 4. All meld-to-hand must be in current move melds
+    for (const card of meldToHandCards) {
+      if (
+        playerMove.melds.findIndex((m) => m.findIndex((c) => c == card)) == 1
+      ) {
+        Logger.logError(`Modifications of ${playerId} are invalid, because card ${getNiceStringSetOfCards(
+          [card]
+        )} was replaced
+          but was not added to a meld`)
+
+        return [false, undefined, undefined]
+      }
+    }
+
+    playerCards = [...playerCards, ...meldToHandCards]
+    // Return new game state
+    // Note that game state is not changed yet, since other parts of the player move still need to be verified
+    return [true, playerCards, melds]
   }
 
   canPlayerExtend(
@@ -312,8 +438,8 @@ export class Game implements ServerGameData {
     return true
   }
 
-  canPlayerDiscard(playerId: PlayerID, card: Card) {
-    return this.playerCards[playerId].find((c) => c == card) != undefined
+  canPlayerDiscard(playerCards: Array<Card>, card: Card) {
+    return playerCards.find((c) => c == card) != undefined
   }
 
   dealPlayerCards() {
@@ -334,8 +460,13 @@ export class Game implements ServerGameData {
     // Can't advance game that is not in progress
     if (this.state != GameState.InProgress) return GameAdvanceState.Invalid
 
-    // Deal ended
-    if (this.playerCards[this.playerTurn].length == 0) {
+    this.advanceTurn()
+
+    // Check if deal ended
+    if (
+      (this.isExtraRound() && this.isLastTurnOfExtraRound()) ||
+      (!this.isExtraRound() && this.playerCards[this.playerTurn].length == 0)
+    ) {
       this.handleDealEnd()
 
       // Game has finished
@@ -345,21 +476,27 @@ export class Game implements ServerGameData {
       }
       return GameAdvanceState.DealChanged
     } else {
-      // If deck has been exhausted, shuffle discard pile
-      if (this.deck.length == 0) {
-        this.shuffleDiscardPileOntoDeck()
-        this.discardPile = [this.deck.splice(-1)[0]]
-      }
-
-      const nextDraw = this.deck.splice(-1)[0]
-      this.playerTurn = this.getNextTurnPlayer()
-      this.playerCards[this.playerTurn].push(nextDraw)
-
-      this.currentDealTurn++
-      if (this.currentDealTurn % this.players.length == 0) this.resetBuyStatus()
-
+      this.prepareNextTurn()
       return GameAdvanceState.TurnChanged
     }
+  }
+
+  prepareNextTurn() {
+    // If deck has been exhausted, shuffle discard pile
+    if (this.deck.length == 0) {
+      this.shuffleDiscardPileOntoDeck()
+      this.discardPile = [this.deck.splice(-1)[0]]
+    }
+
+    const nextDraw = this.deck.splice(-1)[0]
+    this.playerTurn = this.getNextTurnPlayer()
+    this.playerCards[this.playerTurn].push(nextDraw)
+
+    if (this.currentDealTurn % this.players.length == 0) this.resetBuyStatus()
+  }
+
+  advanceTurn() {
+    this.currentDealTurn++
   }
 
   handleDealEnd() {
@@ -369,6 +506,17 @@ export class Game implements ServerGameData {
 
   resetBuyStatus() {
     this.players.forEach((p) => (this.boughtThisRound[p] = false))
+  }
+
+  isExtraRound() {
+    return this.extraRoundStartedFromTurn != INVALID_TURN
+  }
+
+  isLastTurnOfExtraRound() {
+    return (
+      this.currentDealTurn ==
+      this.extraRoundStartedFromTurn + this.players.length
+    )
   }
 
   storeDealEndState() {
@@ -405,6 +553,7 @@ export class Game implements ServerGameData {
     this.dealsEndState.push(this.createEmptyDealEndState())
 
     this.currentDealTurn = 0
+    this.extraRoundStartedFromTurn = INVALID_TURN
   }
 
   getNextTurnPlayer() {
@@ -430,7 +579,10 @@ export class Game implements ServerGameData {
   ): boolean {
     if (melds.length != dealConstraint.size) return false
     for (const meld of melds) {
-      if (!isValidCombination(meld, dealConstraint.combinationConstraint))
+      if (
+        isValidCombination(meld, dealConstraint.combinationConstraint).length ==
+        0
+      )
         return false
     }
     return true

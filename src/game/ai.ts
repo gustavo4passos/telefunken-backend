@@ -7,10 +7,14 @@ import { DealConstraint, GameID, Meld, PlayerMove } from './gameState'
 import { storage } from './storage'
 
 export const calculateMove = (cards: Array<Card>): PlayerMove => {
-  return { melds: [], discards: cards[0], meldExtensions: {} }
+  return {
+    melds: [],
+    discards: cards[0],
+    meldModifications: []
+  }
 }
 
-const AI_PLAY_DELAY = 50
+const AI_PLAY_DELAY = 2000
 
 // TODO: AI Should buy when it makes sense
 // TODO: AI Should also build suit combinations
@@ -112,7 +116,11 @@ export const calculateMoveSmart = (
     return true
   })
 
-  return { melds: finalMelds, discards: cards[0], meldExtensions: {} }
+  return {
+    melds: finalMelds,
+    discards: cards[0],
+    meldModifications: []
+  }
 }
 
 const aiPlay = (game: Game, gameId: GameID) => {

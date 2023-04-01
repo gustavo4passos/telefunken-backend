@@ -68,7 +68,7 @@ export interface DealConstraint {
 export interface PlayerMove {
   melds: Array<Meld>
   discards: Card | null
-  meldExtensions: Record<MeldID, Array<Card>>
+  meldModifications: Array<MeldModification>
 }
 
 export interface ServerGameData {
@@ -88,4 +88,8 @@ export interface ServerGameData {
   dealsEndState: Array<DealEndState>
   boughtThisRound: Record<PlayerID, boolean>
   playerChips: Record<PlayerID, number>
+  // When a player finishes their turn by melding all cards in their hand, every player gets one more turn
+  // instead of ending the deal immediately.
+  // extraRoundStartedFromTurn stores the round in which the player who finished their round melded
+  extraRoundStartedFromTurn: number
 }

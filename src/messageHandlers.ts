@@ -239,7 +239,7 @@ export const onMessage = (ws: ExtWebSocket, messageString: string): void => {
       // TODO: Player doesn't own the room error message
       if (game.owner != playerId) return
 
-      while (game.players.length < MAX_NUM_PLAYERS) {
+      while (game.players.length < MIN_NUM_PLAYERS) {
         const aiId = storage.AddPlayer(0, true)
         game.addPlayer(aiId)
       }
@@ -281,6 +281,8 @@ export const onMessage = (ws: ExtWebSocket, messageString: string): void => {
             storage.extractClientGameData(gameId, playerId)
           )
         )
+
+        return
       }
       const gameAdvanceState = game.advance()
 
